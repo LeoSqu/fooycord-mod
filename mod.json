@@ -12,7 +12,7 @@
     "developer": "Leo Harris",
     "description": "Links your Geometry Dash account to fooycord.",
     "links": {
-        "source": "https://github.com/GravityWebites/fooycord-mod"
+        "source": "https://github.com/LeoSqu/fooycord-mod"
     },
     "dependencies": {
         "geode.node-ids": ">=v1.23.3"
