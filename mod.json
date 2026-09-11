@@ -1,0 +1,28 @@
+{
+    "geode": "5.10.1",
+    "gd": {
+        "win": "2.2081",
+        "android": "2.2081",
+        "mac": "2.2081",
+        "ios": "2.2081"
+    },
+    "id": "gravitygib.fooycord",
+    "name": "fooycord",
+    "version": "v0.1.0",
+    "developer": "Leo Harris",
+    "description": "Links your Geometry Dash account to fooycord.",
+    "links": {
+        "source": "https://github.com/GravityWebites/fooycord-mod"
+    },
+    "dependencies": {
+        "geode.node-ids": ">=v1.23.3"
+    },
+    "settings": {
+        "server": {
+            "name": "fooycord server",
+            "description": "Where your fooycord lives. http://localhost:3000 when it runs on this PC.",
+            "type": "string",
+            "default": "http://localhost:3000"
+        }
+    }
+}
