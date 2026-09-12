@@ -4,6 +4,8 @@
 // v0.2  Report what you are doing to Fooycord so your friends' automations can fire:
 //       session start, editor open, first block of the session, blocks placed (batched),
 //       level saved, level complete. Auth is the mod token handed out at link time.
+// v0.3  Take orders from Fooycord: poll for commands every few seconds while the game runs
+//       (which is also how the website knows the game is open) and open levels sent from chat.
 
 #include <Geode/Geode.hpp>
 #include <Geode/modify/MenuLayer.hpp>
@@ -11,6 +13,12 @@
 #include <Geode/modify/LevelEditorLayer.hpp>
 #include <Geode/modify/EditorPauseLayer.hpp>
 #include <Geode/modify/PlayLayer.hpp>
+#include <Geode/binding/GameLevelManager.hpp>
+#include <Geode/binding/LevelManagerDelegate.hpp>
+#include <Geode/binding/GJSearchObject.hpp>
+#include <Geode/binding/GJGameLevel.hpp>
+#include <Geode/binding/LevelInfoLayer.hpp>
+#include <Geode/binding/LevelBrowserLayer.hpp>
 #include <Geode/ui/Popup.hpp>
 #include <Geode/ui/TextInput.hpp>
 #include <Geode/ui/Notification.hpp>
@@ -180,6 +188,7 @@ protected:
                 Notification::create("Linked to Fooycord", NotificationIcon::Success)->show();
                 log::info("fooycord: linked as {}", user);
                 postEvent("session_start", matjson::makeObject({}));
+                startTicker();
             } else {
                 std::string err = "Server said no.";
                 if (json.isOk()) err = json.unwrap()["error"].asString().unwrapOr(err);
@@ -203,11 +212,134 @@ public:
     }
 };
 
+// ---------------------------------------------------------------- commands from Fooycord
+
+static void markCommandDone(std::string const& id, bool ok, std::string const& error) {
+    auto token = modToken();
+    if (token.empty()) return;
+    web::WebRequest req;
+    req.header("Content-Type", "application/json");
+    req.header("Authorization", "Bearer " + token);
+    req.userAgent("fooycord-mod");
+    req.timeout(std::chrono::seconds(10));
+    req.bodyJSON(matjson::makeObject({ { "id", id }, { "ok", ok }, { "error", error } }));
+    (void)async::spawn(req.post(serverUrl() + "/api/mod/commands/pending"), [](web::WebResponse) {});
+}
+
+static bool inGameplay() {
+    return PlayLayer::get() != nullptr || LevelEditorLayer::get() != nullptr;
+}
+
+// Fetches one level by id and jumps to its page. Falls back to a search-results page if the
+// direct fetch fails (RobTop's servers have moods).
+class FooyLevelOpener : public CCObject, public LevelManagerDelegate {
+public:
+    std::string m_cmdId;
+    int m_levelId = 0;
+    static inline FooyLevelOpener* s_active = nullptr;
+
+    static void open(std::string const& cmdId, int levelId) {
+        if (s_active) return; // one at a time
+        auto self = new FooyLevelOpener();
+        self->m_cmdId = cmdId;
+        self->m_levelId = levelId;
+        self->retain();
+        s_active = self;
+        Notification::create(fmt::format("Fooycord: opening level {}", levelId), NotificationIcon::Loading, 2.f)->show();
+        auto glm = GameLevelManager::get();
+        glm->m_levelManagerDelegate = self;
+        glm->getOnlineLevels(GJSearchObject::create(SearchType::Search, std::to_string(levelId)));
+    }
+
+    void detach() {
+        auto glm = GameLevelManager::get();
+        if (glm->m_levelManagerDelegate == this) glm->m_levelManagerDelegate = nullptr;
+        s_active = nullptr;
+        this->release();
+    }
+
+    void loadLevelsFinished(CCArray* levels, char const*, int) override {
+        if (levels && levels->count() > 0 && !inGameplay()) {
+            auto level = static_cast<GJGameLevel*>(levels->objectAtIndex(0));
+            auto scene = LevelInfoLayer::scene(level, false);
+            CCDirector::get()->pushScene(CCTransitionFade::create(0.5f, scene));
+            Notification::create(fmt::format("Fooycord: {}", std::string(level->m_levelName)), NotificationIcon::Success)->show();
+            markCommandDone(m_cmdId, true, "");
+        } else {
+            this->fallback();
+        }
+        this->detach();
+    }
+
+    void loadLevelsFailed(char const*, int) override {
+        this->fallback();
+        this->detach();
+    }
+
+    void setupPageInfo(gd::string, char const*) override {}
+
+    void fallback() {
+        if (inGameplay()) { markCommandDone(m_cmdId, false, "player was mid-level"); return; }
+        auto scene = LevelBrowserLayer::scene(GJSearchObject::create(SearchType::Search, std::to_string(m_levelId)));
+        CCDirector::get()->pushScene(CCTransitionFade::create(0.5f, scene));
+        markCommandDone(m_cmdId, true, "opened as search");
+    }
+};
+
+static async::TaskHolder<web::WebResponse> g_poll;
+static bool g_tickerStarted = false;
+
+static void runCommand(matjson::Value const& cmd) {
+    auto id = cmd["id"].asString().unwrapOr("");
+    auto type = cmd["type"].asString().unwrapOr("");
+    if (id.empty()) return;
+    if (type == "open_level") {
+        int levelId = static_cast<int>(cmd["payload"]["id"].asInt().unwrapOr(0));
+        if (levelId <= 0) { markCommandDone(id, false, "bad level id"); return; }
+        if (inGameplay()) return; // leave it pending, try again once they are back in a menu
+        FooyLevelOpener::open(id, levelId);
+    } else {
+        markCommandDone(id, false, "unknown command " + type);
+    }
+}
+
+static void pollCommands() {
+    auto token = modToken();
+    if (token.empty()) return;
+    web::WebRequest req;
+    req.header("Authorization", "Bearer " + token);
+    req.userAgent("fooycord-mod");
+    req.timeout(std::chrono::seconds(8));
+    g_poll.spawn(req.get(serverUrl() + "/api/mod/commands/pending"), [](web::WebResponse res) {
+        if (!res.ok()) return;
+        auto json = res.json();
+        if (!json.isOk()) return;
+        auto cmds = json.unwrap()["commands"];
+        if (!cmds.isArray()) return;
+        for (auto const& c : cmds.asArray().unwrap()) runCommand(c);
+    });
+}
+
+class FooyTicker : public CCObject {
+public:
+    void tick(float) { pollCommands(); }
+};
+
+static void startTicker() {
+    if (g_tickerStarted) return;
+    g_tickerStarted = true;
+    auto t = new FooyTicker();
+    t->retain();
+    CCDirector::get()->getScheduler()->scheduleSelector(schedule_selector(FooyTicker::tick), t, 3.f, false);
+    pollCommands();
+}
+
 // ---------------------------------------------------------------- hooks
 
 class $modify(FooyMenuLayer, MenuLayer) {
     bool init() {
         if (!MenuLayer::init()) return false;
+        startTicker();
 
         auto spr = CircleButtonSprite::createWithSpriteFrameName(
             "GJ_chatBtn_001.png", 0.9f, CircleBaseColor::Green, CircleBaseSize::Medium
