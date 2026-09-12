@@ -43,4 +43,4 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: fooycord-mod
-          path: ${{ steps.combine.outputs.output }}
+          path: ${{ steps.combine.outputs.build-output }}
