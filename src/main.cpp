@@ -49,6 +49,8 @@ static bool g_firstBlockSent = false;  // once per launch
 static int g_pendingBlocks = 0;        // batched block_placed count
 static std::chrono::steady_clock::time_point g_lastBlockFlush;
 
+static void startTicker(); // defined with the command runner below
+
 static std::string modToken() {
     return Mod::get()->getSavedValue<std::string>("token", "");
 }
