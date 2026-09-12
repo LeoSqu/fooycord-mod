@@ -286,12 +286,41 @@ static std::string songArtistOf(GJGameLevel* level) {
     return "";
 }
 
+// A menu that ignores touches landing outside a given node (the visible part of a scroll list),
+// so rows scrolled out of view cannot be pressed.
+class FooyClippedMenu : public CCMenu {
+public:
+    CCNode* m_clipTo = nullptr;
+    static FooyClippedMenu* create(CCNode* clipTo) {
+        auto ret = new FooyClippedMenu();
+        if (ret->init()) {
+            ret->autorelease();
+            ret->m_clipTo = clipTo;
+            return ret;
+        }
+        delete ret;
+        return nullptr;
+    }
+    bool ccTouchBegan(CCTouch* touch, CCEvent* event) override {
+        if (m_clipTo) {
+            auto local = m_clipTo->convertToNodeSpace(touch->getLocation());
+            auto size = m_clipTo->getContentSize();
+            if (!CCRect(0, 0, size.width, size.height).containsPoint(local)) return false;
+        }
+        return CCMenu::ccTouchBegan(touch, event);
+    }
+};
+
+static constexpr float LIST_W = 340.f;
+static constexpr float LIST_H = 112.f;
+static constexpr float ROW_H = 30.f;
+
 class FooySharePopup : public geode::Popup {
 protected:
     Ref<GJGameLevel> m_level;
     bool m_online = false;
     std::vector<FooyChatEntry> m_chats;
-    std::vector<CCMenuItemSpriteExtra*> m_rows;
+    std::vector<CCScale9Sprite*> m_rowBgs;
     int m_selected = -1;
     CCMenu* m_listMenu = nullptr;
     ScrollLayer* m_scroll = nullptr;
@@ -313,27 +342,22 @@ protected:
         whatLabel->limitLabelWidth(330.f, 0.55f, 0.2f);
         m_mainLayer->addChildAtPosition(whatLabel, Anchor::Center, ccp(0, 92));
 
-        // chat list
+        // chat list: a dark box with a scroll layer exactly on top of it
         auto bg = CCScale9Sprite::create("square02b_001.png");
-        bg->setContentSize({ 340.f, 112.f });
+        bg->setContentSize({ LIST_W, LIST_H });
         bg->setColor(ccc3(0, 0, 0));
         bg->setOpacity(90);
         m_mainLayer->addChildAtPosition(bg, Anchor::Center, ccp(0, 24));
 
-        m_scroll = ScrollLayer::create({ 340.f, 112.f });
+        m_scroll = ScrollLayer::create({ LIST_W, LIST_H });
         m_scroll->setAnchorPoint({ 0.f, 0.f });
-        m_mainLayer->addChildAtPosition(m_scroll, Anchor::Center, ccp(-170, -32));
+        m_scroll->ignoreAnchorPointForPosition(false);
+        m_mainLayer->addChildAtPosition(m_scroll, Anchor::Center, ccp(-LIST_W / 2, 24 - LIST_H / 2));
 
-        m_listMenu = CCMenu::create();
-        m_listMenu->setContentSize({ 340.f, 112.f });
+        m_listMenu = FooyClippedMenu::create(m_scroll);
+        m_listMenu->ignoreAnchorPointForPosition(true);
         m_listMenu->setPosition(0, 0);
-        m_listMenu->setLayout(
-            ColumnLayout::create()
-                ->setAxisReverse(true)
-                ->setAxisAlignment(AxisAlignment::End)
-                ->setAutoGrowAxis(112.f)
-                ->setGap(4.f)
-        );
+        m_listMenu->setContentSize({ LIST_W, LIST_H });
         m_scroll->m_contentLayer->addChild(m_listMenu);
 
         m_msg = TextInput::create(250.f, "Add a message (optional)", "chatFont.fnt");
@@ -396,20 +420,30 @@ protected:
         });
     }
 
+    // Rows are placed by hand from the top down; the content layer grows to fit and starts scrolled to the top.
     void fillChats(std::vector<FooyChatEntry> const& chats) {
         m_chats = chats;
-        m_rows.clear();
+        m_rowBgs.clear();
+        m_selected = -1;
         m_listMenu->removeAllChildren();
+        float contentH = std::max(LIST_H, ROW_H * static_cast<float>(m_chats.size()) + 4.f);
+        m_scroll->m_contentLayer->setContentSize({ LIST_W, contentH });
+        m_listMenu->setContentSize({ LIST_W, contentH });
         int i = 0;
         for (auto const& c : m_chats) {
-            auto spr = ButtonSprite::create(c.label.c_str(), 300, true, "bigFont.fnt", "GJ_button_04.png", 26.f, 0.45f);
-            auto item = CCMenuItemSpriteExtra::create(spr, this, menu_selector(FooySharePopup::onPick));
-            item->setTag(i++);
+            auto rowBg = CCScale9Sprite::create("GJ_button_04.png");
+            rowBg->setContentSize({ LIST_W - 16.f, ROW_H - 4.f });
+            auto label = CCLabelBMFont::create(c.label.c_str(), "bigFont.fnt");
+            label->limitLabelWidth(LIST_W - 48.f, 0.5f, 0.2f);
+            label->setPosition(rowBg->getContentSize().width / 2.f, rowBg->getContentSize().height / 2.f);
+            rowBg->addChild(label);
+            auto item = CCMenuItemSpriteExtra::create(rowBg, this, menu_selector(FooySharePopup::onPick));
+            item->setTag(i);
+            item->setPosition(LIST_W / 2.f, contentH - 2.f - ROW_H / 2.f - ROW_H * static_cast<float>(i));
             m_listMenu->addChild(item);
-            m_rows.push_back(item);
+            m_rowBgs.push_back(rowBg);
+            i++;
         }
-        m_listMenu->updateLayout();
-        m_scroll->m_contentLayer->setContentSize(m_listMenu->getContentSize());
         m_scroll->moveToTop();
         if (m_chats.empty()) this->setStatus("You are not in any chats yet.", ccc3(255, 200, 90));
         else this->setStatus("Pick a chat.", ccc3(255, 255, 255));
@@ -417,9 +451,8 @@ protected:
 
     void onPick(CCObject* sender) {
         m_selected = static_cast<CCNode*>(sender)->getTag();
-        for (auto row : m_rows) {
-            auto spr = static_cast<ButtonSprite*>(row->getNormalImage());
-            spr->updateBGImage(row->getTag() == m_selected ? "GJ_button_01.png" : "GJ_button_04.png");
+        for (size_t i = 0; i < m_rowBgs.size(); i++) {
+            m_rowBgs[i]->setColor(static_cast<int>(i) == m_selected ? ccc3(120, 255, 140) : ccc3(255, 255, 255));
         }
         this->setStatus(fmt::format("Sending to {}", m_chats[m_selected].label), ccc3(255, 255, 255));
     }
