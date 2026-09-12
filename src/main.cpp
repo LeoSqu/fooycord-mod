@@ -165,10 +165,10 @@ class $modify(FooyMenuLayer, MenuLayer) {
             menu->addChild(btn);
             menu->updateLayout();
         } else {
-            auto menu = CCMenu::create();
-            menu->addChild(btn);
-            menu->setPosition(40, 40);
-            this->addChild(menu);
+            auto fallback = CCMenu::create();
+            fallback->addChild(btn);
+            fallback->setPosition(40, 40);
+            this->addChild(fallback);
         }
         return true;
     }
