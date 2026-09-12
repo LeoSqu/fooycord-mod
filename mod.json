@@ -7,10 +7,10 @@
         "ios": "2.2081"
     },
     "id": "gravitygib.fooycord",
-    "name": "fooycord",
+    "name": "Fooycord",
     "version": "v0.1.0",
-    "developer": "Leo Harris",
-    "description": "Links your Geometry Dash account to fooycord.",
+    "developer": "LeoSquared",
+    "description": "Links your Geometry Dash account to Fooycord.",
     "links": {
         "source": "https://github.com/LeoSqu/fooycord-mod"
     },
@@ -19,8 +19,8 @@
     },
     "settings": {
         "server": {
-            "name": "fooycord server",
-            "description": "Where your fooycord lives. http://localhost:3000 when it runs on this PC.",
+            "name": "Fooycord server",
+            "description": "Where your Fooycord lives. http://localhost:3000 when it runs on this PC.",
             "type": "string",
             "default": "http://localhost:3000"
         }

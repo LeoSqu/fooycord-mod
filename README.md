@@ -1,4 +1,4 @@
-# fooycord Geode mod
+# Fooycord Geode mod
 
 v0.1 does one thing: links your Geometry Dash account to your fooycord account from inside the game.
 

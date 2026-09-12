@@ -37,7 +37,7 @@ protected:
 
     bool init() {
         if (!Popup::init(320.f, 200.f)) return false;
-        this->setTitle("Link to fooycord");
+        this->setTitle("Link to Fooycord");
 
         auto am = GJAccountManager::get();
         bool loggedIn = am->m_accountID > 0;
@@ -49,7 +49,7 @@ protected:
         whoLabel->setColor(loggedIn ? ccc3(255, 255, 255) : ccc3(255, 90, 90));
         m_mainLayer->addChildAtPosition(whoLabel, Anchor::Center, ccp(0, 45));
 
-        auto hint = CCLabelBMFont::create("Type the code from fooycord, Settings > Profile", "chatFont.fnt");
+        auto hint = CCLabelBMFont::create("Type the code from Fooycord, Settings > Profile", "chatFont.fnt");
         hint->setScale(0.6f);
         hint->setOpacity(190);
         m_mainLayer->addChildAtPosition(hint, Anchor::Center, ccp(0, 22));
@@ -73,7 +73,7 @@ protected:
         auto token = Mod::get()->getSavedValue<std::string>("token", "");
         auto linkedAs = Mod::get()->getSavedValue<std::string>("fooy_username", "");
         if (!token.empty() && !linkedAs.empty()) {
-            this->setStatus(fmt::format("Already linked as {} on fooycord. Linking again is fine.", linkedAs), ccc3(120, 255, 140));
+            this->setStatus(fmt::format("Already linked as {} on Fooycord. Linking again is fine.", linkedAs), ccc3(120, 255, 140));
         }
         return true;
     }
@@ -125,13 +125,13 @@ protected:
                     Mod::get()->setSavedValue<std::string>("token", token);
                     Mod::get()->setSavedValue<std::string>("fooy_username", user);
                 }
-                this->setStatus(fmt::format("Linked! You are {} on fooycord.", user), ccc3(120, 255, 140));
-                Notification::create("Linked to fooycord", NotificationIcon::Success)->show();
+                this->setStatus(fmt::format("Linked! You are {} on Fooycord.", user), ccc3(120, 255, 140));
+                Notification::create("Linked to Fooycord", NotificationIcon::Success)->show();
                 log::info("fooycord: linked as {}", user);
             } else {
                 std::string err = "Server said no.";
                 if (json.isOk()) err = json.unwrap()["error"].asString().unwrapOr(err);
-                else if (res.code() == 0 || res.code() >= 500) err = "Could not reach fooycord. Check the server URL in mod settings.";
+                else if (res.code() == 0 || res.code() >= 500) err = "Could not reach Fooycord. Check the server URL in mod settings.";
                 else err = fmt::format("HTTP {}", res.code());
                 this->setStatus(err, ccc3(255, 90, 90));
                 log::warn("fooycord: link failed, code {} body {}", res.code(), res.string().unwrapOr(""));
