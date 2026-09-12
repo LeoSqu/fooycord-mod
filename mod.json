@@ -8,9 +8,9 @@
     },
     "id": "gravitygib.fooycord",
     "name": "Fooycord",
-    "version": "v0.1.0",
+    "version": "v0.2.0",
     "developer": "LeoSquared",
-    "description": "Links your Geometry Dash account to Fooycord.",
+    "description": "Links your Geometry Dash account to Fooycord and tells your friends what you are up to.",
     "links": {
         "source": "https://github.com/LeoSqu/fooycord-mod"
     },

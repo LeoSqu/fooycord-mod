@@ -1,20 +1,28 @@
-// fooycord Geode mod, v0.1: account linking only.
+// Fooycord Geode mod.
 //
-// Adds a green chat button to the main menu. Tap it, type the link code fooycord gave you,
-// and the mod sends your Geometry Dash account id + username to the fooycord server.
-// The server links the account to whoever generated that code and hands back a mod token,
-// which we keep for later versions (presence, overlay notifications, opening levels).
+// v0.1  Link your GD account from the main menu (green chat button, type the code).
+// v0.2  Report what you are doing to Fooycord so your friends' automations can fire:
+//       session start, editor open, first block of the session, blocks placed (batched),
+//       level saved, level complete. Auth is the mod token handed out at link time.
 
 #include <Geode/Geode.hpp>
 #include <Geode/modify/MenuLayer.hpp>
+#include <Geode/modify/EditorUI.hpp>
+#include <Geode/modify/LevelEditorLayer.hpp>
+#include <Geode/modify/EditorPauseLayer.hpp>
+#include <Geode/modify/PlayLayer.hpp>
 #include <Geode/ui/Popup.hpp>
 #include <Geode/ui/TextInput.hpp>
 #include <Geode/ui/Notification.hpp>
 #include <Geode/ui/BasedButtonSprite.hpp>
 #include <Geode/utils/web.hpp>
 #include <Geode/utils/async.hpp>
+#include <chrono>
+#include <random>
 
 using namespace geode::prelude;
+
+// ---------------------------------------------------------------- helpers
 
 static std::string serverUrl() {
     auto url = Mod::get()->getSettingValue<std::string>("server");
@@ -27,6 +35,49 @@ static std::string trimmed(std::string s) {
     while (!s.empty() && (s.front() == ' ' || s.front() == '\t')) s.erase(s.begin());
     return s;
 }
+
+static std::string g_session;          // random per game launch
+static bool g_firstBlockSent = false;  // once per launch
+static int g_pendingBlocks = 0;        // batched block_placed count
+static std::chrono::steady_clock::time_point g_lastBlockFlush;
+
+static std::string modToken() {
+    return Mod::get()->getSavedValue<std::string>("token", "");
+}
+
+static int objectCountOf(LevelEditorLayer* lel) {
+    if (!lel || !lel->m_objects) return 0;
+    return static_cast<int>(lel->m_objects->count());
+}
+
+static std::string levelNameOf(GJGameLevel* level) {
+    if (!level) return "";
+    return std::string(level->m_levelName);
+}
+
+// Fire-and-forget event to /api/mod/events. Silently does nothing if not linked.
+static void postEvent(std::string const& type, matjson::Value data) {
+    auto token = modToken();
+    if (token.empty()) return;
+    std::vector<matjson::Value> events;
+    events.push_back(matjson::makeObject({ { "type", type }, { "data", data } }));
+    auto body = matjson::makeObject({
+        { "session", g_session },
+        { "events", matjson::Value(events) },
+    });
+    web::WebRequest req;
+    req.header("Content-Type", "application/json");
+    req.header("Authorization", "Bearer " + token);
+    req.userAgent("fooycord-mod");
+    req.timeout(std::chrono::seconds(10));
+    req.bodyJSON(body);
+    auto url = serverUrl() + "/api/mod/events";
+    (void)async::spawn(req.post(url), [type](web::WebResponse res) {
+        if (!res.ok()) log::warn("fooycord: event {} failed, HTTP {}", type, res.code());
+    });
+}
+
+// ---------------------------------------------------------------- link popup
 
 class FooyLinkPopup : public geode::Popup {
 protected:
@@ -70,7 +121,7 @@ protected:
         m_status->setScale(0.55f);
         m_mainLayer->addChildAtPosition(m_status, Anchor::Center, ccp(0, -75));
 
-        auto token = Mod::get()->getSavedValue<std::string>("token", "");
+        auto token = modToken();
         auto linkedAs = Mod::get()->getSavedValue<std::string>("fooy_username", "");
         if (!token.empty() && !linkedAs.empty()) {
             this->setStatus(fmt::format("Already linked as {} on Fooycord. Linking again is fine.", linkedAs), ccc3(120, 255, 140));
@@ -95,7 +146,7 @@ protected:
             return;
         }
 
-        this->setStatus("Talking to fooycord...", ccc3(255, 255, 255));
+        this->setStatus("Talking to Fooycord...", ccc3(255, 255, 255));
         m_linkBtn->setEnabled(false);
 
         auto body = matjson::makeObject({
@@ -128,6 +179,7 @@ protected:
                 this->setStatus(fmt::format("Linked! You are {} on Fooycord.", user), ccc3(120, 255, 140));
                 Notification::create("Linked to Fooycord", NotificationIcon::Success)->show();
                 log::info("fooycord: linked as {}", user);
+                postEvent("session_start", matjson::makeObject({}));
             } else {
                 std::string err = "Server said no.";
                 if (json.isOk()) err = json.unwrap()["error"].asString().unwrapOr(err);
@@ -150,6 +202,8 @@ public:
         return nullptr;
     }
 };
+
+// ---------------------------------------------------------------- hooks
 
 class $modify(FooyMenuLayer, MenuLayer) {
     bool init() {
@@ -178,6 +232,72 @@ class $modify(FooyMenuLayer, MenuLayer) {
     }
 };
 
+// Editor opened
+class $modify(FooyLevelEditorLayer, LevelEditorLayer) {
+    bool init(GJGameLevel* level, bool noUI) {
+        if (!LevelEditorLayer::init(level, noUI)) return false;
+        postEvent("editor_open", matjson::makeObject({
+            { "level", levelNameOf(level) },
+            { "objects", objectCountOf(this) },
+        }));
+        return true;
+    }
+};
+
+// Object placed from the object tab. First one per launch is its own event; the rest are batched.
+class $modify(FooyEditorUI, EditorUI) {
+    void onCreateObject(int id) {
+        EditorUI::onCreateObject(id);
+        auto lel = m_editorLayer;
+        auto data = matjson::makeObject({
+            { "level", lel ? levelNameOf(lel->m_level) : std::string("") },
+            { "objects", objectCountOf(lel) },
+            { "objectId", id },
+        });
+        if (!g_firstBlockSent) {
+            g_firstBlockSent = true;
+            postEvent("first_block", data);
+        }
+        // batch block_placed: flush at most every 2 s
+        g_pendingBlocks++;
+        auto now = std::chrono::steady_clock::now();
+        if (now - g_lastBlockFlush > std::chrono::seconds(2)) {
+            g_lastBlockFlush = now;
+            data["count"] = g_pendingBlocks;
+            g_pendingBlocks = 0;
+            postEvent("block_placed", data);
+        }
+    }
+};
+
+// Level saved
+class $modify(FooyEditorPauseLayer, EditorPauseLayer) {
+    void saveLevel() {
+        EditorPauseLayer::saveLevel();
+        auto lel = m_editorLayer;
+        postEvent("level_saved", matjson::makeObject({
+            { "level", lel ? levelNameOf(lel->m_level) : std::string("") },
+            { "objects", objectCountOf(lel) },
+        }));
+    }
+};
+
+// Level completed (any level, including playtests of your own)
+class $modify(FooyPlayLayer, PlayLayer) {
+    void levelComplete() {
+        PlayLayer::levelComplete();
+        postEvent("level_complete", matjson::makeObject({
+            { "level", levelNameOf(m_level) },
+            { "levelId", m_level ? static_cast<int>(m_level->m_levelID) : 0 },
+            { "attempts", m_level ? static_cast<int>(m_level->m_attempts) : 0 },
+        }));
+    }
+};
+
 $execute {
-    log::info("fooycord mod loaded, server = {}", serverUrl());
+    std::mt19937_64 rng(std::random_device{}());
+    g_session = fmt::format("{:016x}", rng());
+    g_lastBlockFlush = std::chrono::steady_clock::now();
+    log::info("fooycord mod loaded, server = {}, session = {}", serverUrl(), g_session);
+    if (!modToken().empty()) postEvent("session_start", matjson::makeObject({}));
 }
