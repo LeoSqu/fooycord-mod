@@ -8,14 +8,15 @@
     },
     "id": "gravitygib.fooycord",
     "name": "Fooycord",
-    "version": "v0.3.0",
+    "version": "v0.4.0",
     "developer": "LeoSquared",
-    "description": "Links your Geometry Dash account to Fooycord, tells your friends what you are up to, and opens levels sent from chat.",
+    "description": "Links your Geometry Dash account to Fooycord, tells your friends what you are up to, opens levels sent from chat, and shares levels (even unpublished ones) to chat in three taps.",
     "links": {
         "source": "https://github.com/LeoSqu/fooycord-mod"
     },
     "dependencies": {
-        "geode.node-ids": ">=v1.23.3"
+        "geode.node-ids": ">=v1.23.3",
+        "hjfod.gmd-api": ">=v1.5.0"
     },
     "settings": {
         "server": {
