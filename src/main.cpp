@@ -409,7 +409,7 @@ protected:
                     for (auto const& ch : arr) {
                         auto id = ch["id"].asString().unwrapOr("");
                         if (id.empty()) continue;
-                        std::string label = arr.size() > 1 ? fmt::format("{} #{}", name, ch["name"].asString().unwrapOr("")) : name;
+                        std::string label = arr.size() > 1 ? fmt::format("{} - {}", name, ch["name"].asString().unwrapOr("")) : name; // bigFont has no # glyph
                         out.push_back({ id, label });
                     }
                 }
@@ -470,7 +470,7 @@ protected:
         if (m_online) {
             body["levelId"] = static_cast<int>(m_level->m_levelID);
         } else {
-            auto bytes = gmd::ExportGmdFile::from(m_level).intoBytes();
+            auto bytes = gmd::ExportGmdFile::from(m_level).setType(gmd::GmdFileType::Gmd).intoBytes();
             if (!bytes) {
                 this->setStatus(fmt::format("Could not export: {}", bytes.unwrapErr()), ccc3(255, 90, 90));
                 return;
@@ -662,7 +662,7 @@ static void importLevel(std::string const& cmdId, std::string url, std::string c
             markCommandDone(cmdId, false, "could not write file");
             return;
         }
-        auto imported = gmd::importGmdAsLevel(path);
+        auto imported = gmd::ImportGmdFile::from(path).setType(gmd::GmdFileType::Gmd).intoLevel();
         if (!imported) {
             markCommandDone(cmdId, false, fmt::format("import failed: {}", imported.unwrapErr()));
             Notification::create("Fooycord: that file is not a level", NotificationIcon::Error)->show();
