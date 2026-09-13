@@ -8,7 +8,7 @@
     },
     "id": "gravitygib.fooycord",
     "name": "Fooycord",
-    "version": "v0.5.1",
+    "version": "v0.5.2",
     "developer": "LeoSquared",
     "description": "Links your Geometry Dash account to Fooycord, tells your friends what you are up to, opens levels sent from chat, and shares levels (even unpublished ones) to chat in three taps.",
     "links": {
@@ -23,7 +23,8 @@
             "name": "Fooycord server",
             "description": "Where your Fooycord lives. Leave it alone unless Leo says otherwise.",
             "type": "string",
-            "default": "https://fooycord.dev"
+            "default": "https://fooycord.dev",
+            "filter": "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789:/.-_"
         }
     }
 }
